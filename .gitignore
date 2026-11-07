@@ -1,0 +1,22 @@
+# Rust
+target/
+**/target/
+
+# Entornos Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+dist/
+
+# Editores
+.vscode/
+.idea/
+
+# Archivos temporales
+*.tmp
+*.log
+.DS_Store
