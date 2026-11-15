@@ -1,22 +1,17 @@
 # Rust
 target/
-**/target/
-
-# Entornos Python
-.venv/
-venv/
-__pycache__/
-*.pyc
+**/*.rs.bk
+Cargo.lock
 
 # Node
 node_modules/
 dist/
+package-lock.json
 
-# Editores
+# Tauri
+src-tauri/target/
+.tauri/
+
+# VS Code / OS
 .vscode/
-.idea/
-
-# Archivos temporales
-*.tmp
-*.log
 .DS_Store

@@ -1,7 +1,7 @@
-
 use std::io::{self, Read};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use crate::tcp_reassembly::TcpFlags;
 use crate::Protocol;
 
 const PCAP_GLOBAL_HEADER_SIZE: usize = 24;
@@ -93,6 +93,13 @@ pub struct EthernetInfo {
     pub network: Option<NetworkInfo>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TcpMetadata {
+    pub seq: u32,
+    pub ack: u32,
+    pub flags: TcpFlags,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkInfo {
     pub ip_version: u8,
@@ -101,6 +108,8 @@ pub struct NetworkInfo {
     pub protocol: Protocol,
     pub source_port: Option<u16>,
     pub destination_port: Option<u16>,
+    /// Poblado solo para TCP.
+    pub tcp: Option<TcpMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,6 +119,7 @@ pub struct PcapPacket {
     pub captured_len: u32,
     pub original_len: u32,
     pub ethernet: Option<EthernetInfo>,
+    pub raw_frame: Vec<u8>,
 }
 
 pub struct PcapReader<R: Read> {
@@ -182,12 +192,9 @@ impl<R: Read> PcapReader<R> {
         &self.header
     }
 
-    /// Lee el siguiente paquete. Devuelve None al llegar al final.
     pub fn next_packet(&mut self) -> Result<Option<PcapPacket>, PcapError> {
         let mut packet_header = [0u8; PCAP_PACKET_HEADER_SIZE];
 
-        // Leemos el primer byte para distinguir el final normal
-        // del archivo de un registro incompleto.
         let first_byte = loop {
             match self.reader.read(&mut packet_header[0..1]) {
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
@@ -215,9 +222,7 @@ impl<R: Read> PcapReader<R> {
             return Err(PcapError::InvalidTimestampFraction(fraction));
         }
 
-        if captured_len > self.header.snaplen
-            || original_len < captured_len
-        {
+        if captured_len > self.header.snaplen || original_len < captured_len {
             return Err(PcapError::InvalidPacketLengths {
                 captured: captured_len,
                 original: original_len,
@@ -234,8 +239,7 @@ impl<R: Read> PcapReader<R> {
             PcapTimestampResolution::Nanoseconds => fraction as i64,
         };
 
-        let timestamp_unix_ns =
-            seconds as i64 * 1_000_000_000 + fraction_ns;
+        let timestamp_unix_ns = seconds as i64 * 1_000_000_000 + fraction_ns;
 
         let mut frame = vec![0u8; captured_len as usize];
         self.reader.read_exact(&mut frame)?;
@@ -248,13 +252,13 @@ impl<R: Read> PcapReader<R> {
             captured_len,
             original_len,
             ethernet: parse_ethernet(&frame),
+            raw_frame: frame,
         }))
     }
 }
 
 fn read_u16(bytes: &[u8], order: ByteOrder) -> u16 {
     let pair = [bytes[0], bytes[1]];
-
     match order {
         ByteOrder::Little => u16::from_le_bytes(pair),
         ByteOrder::Big => u16::from_be_bytes(pair),
@@ -263,7 +267,6 @@ fn read_u16(bytes: &[u8], order: ByteOrder) -> u16 {
 
 fn read_u32(bytes: &[u8], order: ByteOrder) -> u32 {
     let array = [bytes[0], bytes[1], bytes[2], bytes[3]];
-
     match order {
         ByteOrder::Little => u32::from_le_bytes(array),
         ByteOrder::Big => u32::from_be_bytes(array),
@@ -278,7 +281,7 @@ fn format_mac(bytes: &[u8]) -> String {
         .join(":")
 }
 
-fn parse_ethernet(frame: &[u8]) -> Option<EthernetInfo> {
+pub(crate) fn parse_ethernet(frame: &[u8]) -> Option<EthernetInfo> {
     if frame.len() < 14 {
         return None;
     }
@@ -290,28 +293,16 @@ fn parse_ethernet(frame: &[u8]) -> Option<EthernetInfo> {
     let mut offset = 14;
     let mut vlan_ids = Vec::new();
 
-    // Permite hasta cuatro etiquetas VLAN apiladas.
     for _ in 0..4 {
         if !matches!(ether_type, 0x8100 | 0x88a8 | 0x9100) {
             break;
         }
-
         if frame.len() < offset + 4 {
             break;
         }
-
-        let tag_control = u16::from_be_bytes([
-            frame[offset],
-            frame[offset + 1],
-        ]);
-
+        let tag_control = u16::from_be_bytes([frame[offset], frame[offset + 1]]);
         vlan_ids.push(tag_control & 0x0fff);
-
-        ether_type = u16::from_be_bytes([
-            frame[offset + 2],
-            frame[offset + 3],
-        ]);
-
+        ether_type = u16::from_be_bytes([frame[offset + 2], frame[offset + 3]]);
         offset += 4;
     }
 
@@ -336,37 +327,24 @@ fn parse_ipv4(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
     }
 
     let first = frame[offset];
-
     if first >> 4 != 4 {
         return None;
     }
 
     let header_length = ((first & 0x0f) as usize) * 4;
-
     if header_length < 20 || frame.len() < offset + header_length {
         return None;
     }
 
-    let total_length = u16::from_be_bytes([
-        frame[offset + 2],
-        frame[offset + 3],
-    ]) as usize;
-
+    let total_length = u16::from_be_bytes([frame[offset + 2], frame[offset + 3]]) as usize;
     if total_length < header_length {
         return None;
     }
 
-    let packet_end = offset
-        .saturating_add(total_length)
-        .min(frame.len());
-
+    let packet_end = offset.saturating_add(total_length).min(frame.len());
     let protocol_number = frame[offset + 9];
 
-    let fragment_field = u16::from_be_bytes([
-        frame[offset + 6],
-        frame[offset + 7],
-    ]);
-
+    let fragment_field = u16::from_be_bytes([frame[offset + 6], frame[offset + 7]]);
     let fragment_offset = fragment_field & 0x1fff;
 
     let source_ip = IpAddr::V4(Ipv4Addr::new(
@@ -375,7 +353,6 @@ fn parse_ipv4(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
         frame[offset + 14],
         frame[offset + 15],
     ));
-
     let destination_ip = IpAddr::V4(Ipv4Addr::new(
         frame[offset + 16],
         frame[offset + 17],
@@ -391,10 +368,17 @@ fn parse_ipv4(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
         value => Protocol::Other(format!("IPv4 protocol {value}")),
     };
 
-    let (source_port, destination_port) = if fragment_offset == 0 {
-        parse_ports(frame, offset + header_length, packet_end, protocol_number)
+    let transport_offset = offset + header_length;
+    let (source_port, destination_port, tcp) = if fragment_offset == 0 {
+        let (sp, dp) = parse_ports(frame, transport_offset, packet_end, protocol_number);
+        let tcp = if protocol_number == 6 {
+            parse_tcp_metadata(frame, transport_offset, packet_end)
+        } else {
+            None
+        };
+        (sp, dp, tcp)
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     Some(NetworkInfo {
@@ -404,6 +388,7 @@ fn parse_ipv4(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
         protocol,
         source_port,
         destination_port,
+        tcp,
     })
 }
 
@@ -412,11 +397,7 @@ fn parse_ipv6(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
         return None;
     }
 
-    let payload_length = u16::from_be_bytes([
-        frame[offset + 4],
-        frame[offset + 5],
-    ]) as usize;
-
+    let payload_length = u16::from_be_bytes([frame[offset + 4], frame[offset + 5]]) as usize;
     let packet_end = offset
         .saturating_add(40)
         .saturating_add(payload_length)
@@ -426,7 +407,6 @@ fn parse_ipv6(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
 
     let mut source_bytes = [0u8; 16];
     source_bytes.copy_from_slice(&frame[offset + 8..offset + 24]);
-
     let mut destination_bytes = [0u8; 16];
     destination_bytes.copy_from_slice(&frame[offset + 24..offset + 40]);
 
@@ -440,10 +420,14 @@ fn parse_ipv6(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
         value => Protocol::Other(format!("IPv6 next header {value}")),
     };
 
-    // En esta versión solo se interpretan cabeceras TCP/UDP
-    // cuando aparecen directamente después de la cabecera IPv6.
+    let transport_offset = offset + 40;
     let (source_port, destination_port) =
-        parse_ports(frame, offset + 40, packet_end, next_header);
+        parse_ports(frame, transport_offset, packet_end, next_header);
+    let tcp = if next_header == 6 {
+        parse_tcp_metadata(frame, transport_offset, packet_end)
+    } else {
+        None
+    };
 
     Some(NetworkInfo {
         ip_version: 6,
@@ -452,6 +436,7 @@ fn parse_ipv6(frame: &[u8], offset: usize) -> Option<NetworkInfo> {
         protocol,
         source_port,
         destination_port,
+        tcp,
     })
 }
 
@@ -464,22 +449,42 @@ fn parse_ports(
     if !matches!(protocol_number, 6 | 17) {
         return (None, None);
     }
-
     if packet_end < offset + 4 {
         return (None, None);
     }
 
-    let source = u16::from_be_bytes([
-        frame[offset],
-        frame[offset + 1],
-    ]);
-
-    let destination = u16::from_be_bytes([
-        frame[offset + 2],
-        frame[offset + 3],
-    ]);
+    let source = u16::from_be_bytes([frame[offset], frame[offset + 1]]);
+    let destination = u16::from_be_bytes([frame[offset + 2], frame[offset + 3]]);
 
     (Some(source), Some(destination))
+}
+
+fn parse_tcp_metadata(
+    frame: &[u8],
+    offset: usize,
+    packet_end: usize,
+) -> Option<TcpMetadata> {
+    if packet_end < offset + 20 {
+        return None;
+    }
+    let seq = u32::from_be_bytes([
+        frame[offset + 4],
+        frame[offset + 5],
+        frame[offset + 6],
+        frame[offset + 7],
+    ]);
+    let ack = u32::from_be_bytes([
+        frame[offset + 8],
+        frame[offset + 9],
+        frame[offset + 10],
+        frame[offset + 11],
+    ]);
+    let flags_byte = frame[offset + 13];
+    Some(TcpMetadata {
+        seq,
+        ack,
+        flags: TcpFlags::from_byte(flags_byte),
+    })
 }
 
 #[cfg(test)]
@@ -489,15 +494,9 @@ mod tests {
 
     fn sample_frame() -> Vec<u8> {
         let mut frame = Vec::new();
-
-        // Ethernet: destino y origen.
         frame.extend_from_slice(&[0, 1, 2, 3, 4, 5]);
         frame.extend_from_slice(&[6, 7, 8, 9, 10, 11]);
-
-        // EtherType: IPv4.
         frame.extend_from_slice(&[0x08, 0x00]);
-
-        // IPv4: 192.168.1.10 -> 1.1.1.1, TCP.
         frame.extend_from_slice(&[
             0x45, 0x00, 0x00, 0x28,
             0x00, 0x01, 0x40, 0x00,
@@ -505,8 +504,6 @@ mod tests {
             192, 168, 1, 10,
             1, 1, 1, 1,
         ]);
-
-        // TCP: puerto 50000 -> 443.
         frame.extend_from_slice(&[
             0xc3, 0x50, 0x01, 0xbb,
             0, 0, 0, 1,
@@ -514,15 +511,12 @@ mod tests {
             0x50, 0x02, 0x20, 0,
             0, 0, 0, 0,
         ]);
-
         frame
     }
 
     fn sample_pcap() -> Vec<u8> {
         let frame = sample_frame();
         let mut bytes = Vec::new();
-
-        // Cabecera global PCAP little-endian, microsegundos.
         bytes.extend_from_slice(&[0xd4, 0xc3, 0xb2, 0xa1]);
         bytes.extend_from_slice(&2u16.to_le_bytes());
         bytes.extend_from_slice(&4u16.to_le_bytes());
@@ -530,13 +524,10 @@ mod tests {
         bytes.extend_from_slice(&0u32.to_le_bytes());
         bytes.extend_from_slice(&65535u32.to_le_bytes());
         bytes.extend_from_slice(&1u32.to_le_bytes());
-
-        // Cabecera del paquete: 1 segundo y 500000 microsegundos.
         bytes.extend_from_slice(&1u32.to_le_bytes());
         bytes.extend_from_slice(&500_000u32.to_le_bytes());
         bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&(frame.len() as u32).to_le_bytes());
-
         bytes.extend_from_slice(&frame);
         bytes
     }
@@ -545,18 +536,14 @@ mod tests {
     fn reads_pcap_header_and_packet() {
         let data = sample_pcap();
         let mut reader = PcapReader::new(Cursor::new(data)).unwrap();
-
         assert_eq!(reader.header().version_major, 2);
         assert_eq!(reader.header().version_minor, 4);
         assert_eq!(reader.header().link_type, LINKTYPE_ETHERNET);
-
         let packet = reader.next_packet().unwrap().unwrap();
-
         assert_eq!(packet.number, 1);
         assert_eq!(packet.timestamp_unix_ns, 1_500_000_000);
         assert_eq!(packet.captured_len, 54);
         assert_eq!(packet.original_len, 54);
-
         assert!(reader.next_packet().unwrap().is_none());
     }
 
@@ -564,55 +551,35 @@ mod tests {
     fn extracts_ethernet_ipv4_and_tcp_information() {
         let mut reader = PcapReader::new(Cursor::new(sample_pcap())).unwrap();
         let packet = reader.next_packet().unwrap().unwrap();
-
         let ethernet = packet.ethernet.unwrap();
-
         assert_eq!(ethernet.source_mac, "06:07:08:09:0a:0b");
         assert_eq!(ethernet.destination_mac, "00:01:02:03:04:05");
         assert_eq!(ethernet.ether_type, 0x0800);
-
         let network = ethernet.network.unwrap();
-
         assert_eq!(network.ip_version, 4);
-        assert_eq!(
-            network.source_ip,
-            IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10))
-        );
-        assert_eq!(
-            network.destination_ip,
-            IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))
-        );
-
+        assert_eq!(network.source_ip, IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)));
+        assert_eq!(network.destination_ip, IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)));
         assert_eq!(network.protocol, Protocol::Tcp);
         assert_eq!(network.source_port, Some(50000));
         assert_eq!(network.destination_port, Some(443));
+        let tcp = network.tcp.expect("TCP metadata");
+        assert_eq!(tcp.seq, 1);
+        assert!(tcp.flags.syn);
     }
 
     #[test]
     fn rejects_unsupported_link_type() {
         let mut data = sample_pcap();
-
-        // Campo link_type de la cabecera global.
         data[20..24].copy_from_slice(&113u32.to_le_bytes());
-
         let result = PcapReader::new(Cursor::new(data));
-
-        assert!(matches!(
-            result,
-            Err(PcapError::UnsupportedLinkType(113))
-        ));
+        assert!(matches!(result, Err(PcapError::UnsupportedLinkType(113))));
     }
 
     #[test]
     fn rejects_invalid_timestamp_fraction() {
         let mut data = sample_pcap();
-
-        // Fracción de segundo igual a 1.000.000:
-        // no es válida en un archivo con resolución de microsegundos.
         data[28..32].copy_from_slice(&1_000_000u32.to_le_bytes());
-
         let mut reader = PcapReader::new(Cursor::new(data)).unwrap();
-
         assert!(matches!(
             reader.next_packet(),
             Err(PcapError::InvalidTimestampFraction(1_000_000))

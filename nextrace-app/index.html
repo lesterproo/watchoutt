@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>watchouttt</title>
+  </head>
+  <body>
+    <div id="loading-overlay" class="hidden">
+      <div class="wheel-container">
+        <svg class="ship-wheel" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="42" stroke="#39ff14" stroke-width="4" fill="none" />
+          <circle cx="50" cy="50" r="12" stroke="#39ff14" stroke-width="6" fill="none" />
+          <line x1="50" y1="8" x2="50" y2="92" stroke="#39ff14" stroke-width="6" />
+          <line x1="8" y1="50" x2="92" y2="50" stroke="#39ff14" stroke-width="6" />
+          <line x1="20.3" y1="20.3" x2="79.7" y2="79.7" stroke="#39ff14" stroke-width="6" />
+          <line x1="20.3" y1="79.7" x2="79.7" y2="20.3" stroke="#39ff14" stroke-width="6" />
+          <circle cx="50" cy="8" r="6" fill="#39ff14" />
+          <circle cx="50" cy="92" r="6" fill="#39ff14" />
+          <circle cx="8" cy="50" r="6" fill="#39ff14" />
+          <circle cx="92" cy="50" r="6" fill="#39ff14" />
+          <circle cx="20.3" cy="20.3" r="6" fill="#39ff14" />
+          <circle cx="79.7" cy="79.7" r="6" fill="#39ff14" />
+          <circle cx="20.3" cy="79.7" r="6" fill="#39ff14" />
+          <circle cx="79.7" cy="20.3" r="6" fill="#39ff14" />
+        </svg>
+      </div>
+      <div id="loading-text">Procesando...</div>
+    </div>
+
+    <div id="app">
+      <header>
+        <div class="brand">watchouttt</div>
+        <div class="case-info">
+          <div id="case-name">Ningún caso abierto</div>
+          <div id="project-info">Abre o crea un proyecto para empezar</div>
+        </div>
+        <div class="header-actions">
+          <button id="btn-new-project" class="btn-secondary">Nuevo Proyecto</button>
+          <button id="btn-open-project" class="btn-primary">Abrir Proyecto</button>
+          <button id="btn-import-capture" class="btn-secondary">Importar Captura</button>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab active" data-tab="overview">Vista general</button>
+        <button class="tab" data-tab="sources">Fuentes</button>
+        <button class="tab" data-tab="events">Eventos</button>
+        <button class="tab" data-tab="assets">Activos</button>
+        <button class="tab" data-tab="flows">Flujos</button>
+        <button class="tab" data-tab="correlations">Correlaciones</button>
+        <button class="tab" data-tab="protocols">Protocolos</button>
+        <button class="tab" data-tab="diff">Diff</button>
+        <button class="tab" data-tab="findings">Hallazgos <span id="findings-tab-badge" class="badge"></span></button>
+        <button class="tab" data-tab="timeline">Timeline</button>
+        <button class="tab" data-tab="live">Live Capture</button>
+        <button class="tab" data-tab="export">Exportar</button>
+      </nav>
+
+      <main>
+        <!-- OVERVIEW -->
+        <section class="panel active" data-panel="overview">
+          <div id="overview-empty" class="empty-state">Abre un proyecto para ver la vista general</div>
+          <div id="overview-content" class="hidden" style="overflow-y: auto; height: 100%;">
+            <div id="project-banner"></div>
+            <div id="stats-grid" class="stat-grid"></div>
+            <div class="charts-grid">
+              <div class="chart-container"><h3>Distribución de Eventos</h3><div id="kind-chart"></div></div>
+              <div class="chart-container"><h3>Top Activos por Tráfico</h3><div id="top-assets"></div></div>
+              <div class="chart-container"><h3>Protocolos</h3><div id="protocol-stats"></div></div>
+              <div class="chart-container"><h3>Endpoints Principales</h3><div id="endpoint-stats"></div></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- SOURCES -->
+        <section class="panel" data-panel="sources">
+          <div class="toolbar">
+            <button id="btn-analyze" class="btn-primary">Analizar Fuentes</button>
+            <button id="btn-verify-integrity" class="btn-secondary">Verificar Integridad</button>
+            <div id="integrity-status" class="hidden"></div>
+          </div>
+          <div class="table-container">
+            <table id="sources-table"><thead><tr><th>ID</th><th>Archivo</th><th>Formato</th><th>Tamaño</th><th>Estado</th><th>Hash</th></tr></thead><tbody></tbody></table>
+          </div>
+        </section>
+
+        <!-- EVENTS -->
+        <section class="panel" data-panel="events">
+          <div class="filters">
+            <div class="filter-group">
+              <input type="text" id="filter-text" placeholder="Buscar resumen...">
+              <select id="filter-kind"><option value="">Todos los tipos</option><option value="Packet">Packet</option><option value="DnsQuery">DnsQuery</option><option value="DnsResponse">DnsResponse</option><option value="HttpRequest">HttpRequest</option><option value="HttpResponse">HttpResponse</option></select>
+              <select id="filter-protocol"><option value="">Todos los protocolos</option><option value="TCP">TCP</option><option value="UDP">UDP</option></select>
+            </div>
+            <div class="filter-group">
+              <input type="number" id="filter-min-port" placeholder="Puerto min">
+              <input type="number" id="filter-max-port" placeholder="Puerto max">
+              <input type="datetime-local" id="filter-time-start">
+              <input type="datetime-local" id="filter-time-end">
+            </div>
+            <div class="filter-group">
+              <label><input type="checkbox" id="filter-exclude-loopback"> Excluir Loopback</label>
+              <label><input type="checkbox" class="flag-filter" value="SYN"> SYN</label>
+              <label><input type="checkbox" class="flag-filter" value="ACK"> ACK</label>
+            </div>
+            <div class="filter-actions">
+              <button id="btn-filter" class="btn-primary">Filtrar</button>
+              <button id="btn-clear-filters" class="btn-secondary">Limpiar</button>
+            </div>
+          </div>
+          <div id="pivot-indicator" class="hidden" style="padding: 0.5rem 1rem; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">Pivote: <span id="pivot-label"></span> <button id="btn-clear-pivot" class="btn-icon">×</button></div>
+          
+          <div class="split-view">
+            <div class="list-view">
+              <div id="events-count" class="list-header"></div>
+              <div class="table-container">
+                <table id="events-table"><thead><tr><th>Hora</th><th>Tipo</th><th>Flags</th><th>Resumen</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div id="event-detail" class="detail-view">
+              <div class="empty-state">Selecciona un evento para ver detalles</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ASSETS -->
+        <section class="panel" data-panel="assets">
+          <div class="split-view">
+            <div class="list-view">
+              <div id="assets-count" class="list-header"></div>
+              <div class="table-container">
+                <table id="assets-table"><thead><tr><th>Activo</th><th>Tipo</th><th>Flujos</th><th>Eventos</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div id="asset-detail" class="detail-view">
+              <div class="empty-state">Selecciona un activo</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- FLOWS -->
+        <section class="panel" data-panel="flows">
+          <div class="toolbar">
+            <select id="filter-flow-proto"><option value="">Todos los protocolos</option><option value="TCP">TCP</option><option value="UDP">UDP</option></select>
+            <input type="number" id="filter-flow-min-bytes" placeholder="Bytes mínimos">
+            <button id="btn-filter-flows" class="btn-secondary">Filtrar</button>
+            <span id="flows-count" class="ml-auto text-muted"></span>
+          </div>
+          <div class="split-view">
+            <div class="list-view">
+              <div class="table-container">
+                <table id="flows-table"><thead><tr><th>Proto</th><th>Origen</th><th>Destino</th><th>Flags</th><th>Paquetes</th><th>Bytes</th></tr></thead><tbody></tbody></table>
+              </div>
+            </div>
+            <div id="flow-session-detail" class="detail-view">
+              <div class="empty-state">Selecciona un flujo</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- CORRELATIONS -->
+        <section class="panel" data-panel="correlations">
+          <div class="toolbar">
+            <select id="correlation-window"><option value="60000000000">1 min</option><option value="300000000000">5 min</option><option value="900000000000">15 min</option></select>
+            <button id="btn-correlate" class="btn-primary">Buscar Correlaciones</button>
+            <span id="correlations-count" class="ml-auto text-muted"></span>
+          </div>
+          <div id="correlations-list" class="detail-view" style="flex:1;"></div>
+        </section>
+
+        <!-- PROTOCOLS -->
+        <section class="panel" data-panel="protocols">
+          <nav class="subtabs">
+            <button class="subtab active" data-subtab="dns">DNS</button>
+            <button class="subtab" data-subtab="http">HTTP</button>
+            <button class="subtab" data-subtab="tls">TLS</button>
+          </nav>
+          <div class="subpanel active" data-subpanel="dns">
+            <div class="table-container">
+              <table id="dns-table"><thead><tr><th>Hostname</th><th>IP</th><th>Hora</th><th>Resumen</th></tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+          <div class="subpanel" data-subpanel="http">
+            <div class="table-container">
+              <table id="http-table"><thead><tr><th>Host</th><th>Peticiones</th><th>Métodos</th><th>URIs de muestra</th></tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+          <div class="subpanel" data-subpanel="tls">
+            <div class="table-container">
+              <table id="tls-table"><thead><tr><th>SNI</th><th>Conexiones</th><th>Versiones</th><th>ALPN</th><th>IPs Cliente</th></tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+        </section>
+
+        <!-- DIFF -->
+        <section class="panel" data-panel="diff">
+          <div class="toolbar">
+            <select id="diff-source-a"></select>
+            <span>vs</span>
+            <select id="diff-source-b"></select>
+            <button id="btn-run-diff" class="btn-primary">Comparar</button>
+          </div>
+          <div id="diff-result" class="p-4" style="overflow-y: auto; flex-grow: 1;"></div>
+        </section>
+
+        <!-- FINDINGS -->
+        <section class="panel" data-panel="findings">
+          <div class="toolbar">
+            <button id="btn-detect-now" class="btn-primary">Detectar Anomalías</button>
+            <button id="btn-config-anomalies" class="btn-secondary">Configurar</button>
+            <button id="btn-detect-baseline" class="btn-secondary">Detectar Baseline</button>
+            <button id="btn-config-baseline" class="btn-secondary">Config Baseline</button>
+            <span id="baseline-message" class="ml-auto text-muted"></span>
+          </div>
+          <div id="baseline-findings-container" class="hidden p-4 bg-panel border-b" style="max-height: 30vh; overflow-y: auto;">
+            <div class="table-container">
+              <table id="baseline-findings-table"><thead><tr><th>Severidad</th><th>Título</th><th>Descripción</th></tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+          <div class="split-view">
+            <div id="findings-list" class="list-view"></div>
+            <div id="finding-detail" class="detail-view">
+              <div class="empty-state">Selecciona un hallazgo</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TIMELINE -->
+        <section class="panel" data-panel="timeline">
+          <div class="toolbar"><span id="timeline-meta"></span></div>
+          <div id="timeline-histogram" class="histogram-container" style="height: 150px; display: flex; align-items: flex-end; gap: 2px; margin-bottom: 1rem;"></div>
+          <div class="table-container">
+            <table id="timeline-table"><thead><tr><th>Hora</th><th>Tipo</th><th>Resumen</th><th>Evidencias</th></tr></thead><tbody></tbody></table>
+          </div>
+        </section>
+
+        <!-- LIVE CAPTURE -->
+        <section class="panel" data-panel="live">
+          <div class="center-content">
+            <h2>Captura en Vivo</h2>
+            <p class="warning-box">
+              <strong>⚠️ Requisito de permisos:</strong><br>
+              Para capturar tráfico en vivo, la aplicación necesita permisos de administrador (root). 
+              Si estás en Linux, asegúrate de ejecutar la terminal como superusuario o haber aplicado el comando <code>setcap</code> al binario.
+            </p>
+            <div class="live-controls">
+              <select id="live-interface" class="form-select"></select>
+              <button id="btn-start-live" class="btn-primary btn-large">Iniciar Captura</button>
+              <button id="btn-stop-live" class="btn-danger btn-large hidden">Detener Captura</button>
+            </div>
+            <div id="live-status" class="live-status-text">Inactivo</div>
+          </div>
+        </section>
+
+        <!-- EXPORT -->
+        <section class="panel" data-panel="export">
+          <div class="center-content">
+            <h2>Exportar Investigación</h2>
+            <p class="text-muted" style="margin-bottom: 2rem;">Selecciona el formato para guardar el informe del caso actual.</p>
+            <div class="export-grid">
+              <button id="btn-export-md" class="btn-export-card"><span class="icon">📄</span><span class="label">Markdown (.md)</span></button>
+              <button id="btn-export-html" class="btn-export-card"><span class="icon">🌐</span><span class="label">Informe HTML</span></button>
+              <button id="btn-export-csv" class="btn-export-card"><span class="icon">📊</span><span class="label">Eventos CSV</span></button>
+              <button id="btn-export-json" class="btn-export-card"><span class="icon">🗂️</span><span class="label">Eventos JSON</span></button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div id="status-bar"><div id="status-message">Listo</div></div>
+        <span id="findings-badge" class="badge hidden"></span>
+      </footer>
+    </div>
+
+    <div id="modal-hexdump" class="modal hidden">
+      <div class="modal-content">
+        <span id="modal-close-hexdump" class="close">&times;</span>
+        <pre id="hexdump-content" class="hexdump"></pre>
+      </div>
+    </div>
+    <div id="modal-anomaly-config" class="modal hidden">
+      <div class="modal-content">
+        <span id="modal-close" class="close">&times;</span>
+        <h2>Configuración de Anomalías</h2>
+        <div id="modal-body" class="modal-body"></div>
+        <div class="modal-actions">
+          <button id="btn-config-reset" class="btn-secondary">Restablecer</button>
+          <button id="btn-config-cancel" class="btn-secondary">Cancelar</button>
+          <button id="btn-config-apply" class="btn-primary">Aplicar</button>
+        </div>
+      </div>
+    </div>
+    <div id="modal-baseline-config" class="modal hidden">
+      <div class="modal-content">
+        <span id="modal-close-baseline" class="close">&times;</span>
+        <h2>Configuración de Baseline</h2>
+        <div id="modal-body-baseline" class="modal-body"></div>
+        <div class="modal-actions">
+          <button id="btn-baseline-reset" class="btn-secondary">Restablecer</button>
+          <button id="btn-baseline-cancel" class="btn-secondary">Cancelar</button>
+          <button id="btn-baseline-apply" class="btn-primary">Aplicar</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

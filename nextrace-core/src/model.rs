@@ -1,9 +1,7 @@
-
 use std::fmt;
 use std::path::PathBuf;
 
-// Identificadores tipados: evitan confundir el ID de un evento
-// con el ID de una fuente o una evidencia.
+// Identificadores tipados.
 macro_rules! define_id {
     ($name:ident) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -17,8 +15,8 @@ define_id!(AssetId);
 define_id!(EvidenceId);
 define_id!(EventId);
 define_id!(FindingId);
+define_id!(FlowId);
 
-// Errores que puede producir el modelo de datos.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
     EmptyField(&'static str),
@@ -31,8 +29,10 @@ pub enum DomainError {
     UnknownSource(SourceId),
     UnknownAsset(AssetId),
     UnknownEvidence(EvidenceId),
+    UnknownFlow(FlowId),
     MissingEvidence(&'static str),
     InvalidConfidence(u8),
+    CounterOverflow(&'static str),
 }
 
 impl fmt::Display for DomainError {
@@ -59,11 +59,17 @@ impl fmt::Display for DomainError {
             Self::UnknownEvidence(id) => {
                 write!(f, "No existe la evidencia con ID {}", id.0)
             }
+            Self::UnknownFlow(id) => {
+                write!(f, "No existe el flujo con ID {}", id.0)
+            }
             Self::MissingEvidence(entity) => {
                 write!(f, "{entity} debe tener al menos una evidencia")
             }
             Self::InvalidConfidence(value) => {
                 write!(f, "Confianza inválida: {value}. Debe estar entre 0 y 100")
+            }
+            Self::CounterOverflow(counter) => {
+                write!(f, "Desbordamiento del contador: {counter}")
             }
         }
     }
@@ -71,7 +77,6 @@ impl fmt::Display for DomainError {
 
 impl std::error::Error for DomainError {}
 
-// Formatos que NEXTRACE podrá incorporar como fuentes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceFormat {
     Pcap,
@@ -86,7 +91,6 @@ pub enum SourceFormat {
     Unknown,
 }
 
-// Archivo original incorporado a una investigación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SourceFile {
     pub id: SourceId,
@@ -98,8 +102,7 @@ pub struct SourceFile {
     pub imported_at_unix_ns: i64,
 }
 
-// Tipos de activos o entidades identificables en la red.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AssetKind {
     IpAddress,
     MacAddress,
@@ -117,7 +120,6 @@ pub struct Asset {
     pub label: Option<String>,
 }
 
-// Localización exacta de un dato dentro de su fuente.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvidenceLocation {
     PacketFrame {
@@ -135,7 +137,6 @@ pub enum EvidenceLocation {
     },
 }
 
-// Evidencia extraída de un archivo original.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Evidence {
     pub id: EvidenceId,
@@ -144,8 +145,7 @@ pub struct Evidence {
     pub excerpt: Option<String>,
 }
 
-// Protocolos que el motor puede identificar.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Protocol {
     Tcp,
     Udp,
@@ -154,7 +154,6 @@ pub enum Protocol {
     Other(String),
 }
 
-// Tipos de eventos que pueden aparecer en una investigación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EventKind {
     Packet,
@@ -165,14 +164,18 @@ pub enum EventKind {
     AuthenticationFailure,
     ConfigurationChange,
     ServiceState,
+    DnsQuery,
+    DnsResponse,
+    DnsResolution,
+    TlsClientHello,
+    HttpRequest,
+    HttpResponse,
     Other(String),
 }
 
-// Suceso normalizado y relacionado con sus evidencias.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NetworkEvent {
     pub id: EventId,
-    // Nanosegundos desde Unix epoch, en UTC.
     pub timestamp_unix_ns: Option<i64>,
     pub kind: EventKind,
     pub summary: String,
@@ -182,9 +185,66 @@ pub struct NetworkEvent {
     pub destination_port: Option<u16>,
     pub protocol: Option<Protocol>,
     pub evidence_ids: Vec<EvidenceId>,
+    pub tcp_flags: Option<String>,
 }
 
-// Diferencia un hecho observado de una interpretación.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetworkFlow {
+    pub id: FlowId,
+    pub endpoint_a: AssetId,
+    pub endpoint_b: AssetId,
+    pub endpoint_a_port: Option<u16>,
+    pub endpoint_b_port: Option<u16>,
+    pub protocol: Protocol,
+
+    pub first_seen_unix_ns: i64,
+    pub last_seen_unix_ns: i64,
+
+    pub packet_count: u64,
+    pub captured_bytes: u64,
+    pub original_bytes: u64,
+
+    pub packets_a_to_b: u64,
+    pub packets_b_to_a: u64,
+
+    pub captured_bytes_a_to_b: u64,
+    pub captured_bytes_b_to_a: u64,
+
+    pub evidence_ids: Vec<EvidenceId>,
+}
+
+impl NetworkFlow {
+    pub fn duration_ns(&self) -> Option<u64> {
+        self.last_seen_unix_ns
+            .checked_sub(self.first_seen_unix_ns)
+            .and_then(|duration| u64::try_from(duration).ok())
+    }
+
+    pub fn packets_per_second(&self) -> Option<f64> {
+        let duration = self.duration_ns()?;
+
+        if duration == 0 {
+            return None;
+        }
+
+        Some(self.packet_count as f64 * 1_000_000_000.0 / duration as f64)
+    }
+
+    pub fn captured_bytes_per_second(&self) -> Option<f64> {
+        let duration = self.duration_ns()?;
+
+        if duration == 0 {
+            return None;
+        }
+
+        Some(self.captured_bytes as f64 * 1_000_000_000.0 / duration as f64)
+    }
+
+    pub fn is_bidirectional(&self) -> bool {
+        self.packets_a_to_b > 0 && self.packets_b_to_a > 0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FindingKind {
     Observation,
@@ -201,7 +261,6 @@ pub enum Severity {
     Critical,
 }
 
-// Resultado del análisis que debe poder justificarse con evidencias.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub id: FindingId,
@@ -213,7 +272,6 @@ pub struct Finding {
     pub confidence_percent: Option<u8>,
 }
 
-// Contenedor principal de una investigación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Investigation {
     pub id: InvestigationId,
@@ -225,6 +283,7 @@ pub struct Investigation {
     assets: Vec<Asset>,
     evidences: Vec<Evidence>,
     events: Vec<NetworkEvent>,
+    flows: Vec<NetworkFlow>,
     findings: Vec<Finding>,
 }
 
@@ -250,6 +309,7 @@ impl Investigation {
             assets: Vec::new(),
             evidences: Vec::new(),
             events: Vec::new(),
+            flows: Vec::new(),
             findings: Vec::new(),
         })
     }
@@ -340,17 +400,116 @@ impl Investigation {
             }
         }
 
-        if event.evidence_ids.is_empty() {
-            return Err(DomainError::MissingEvidence("El evento"));
+        validate_evidence_ids(&self.evidences, &event.evidence_ids, "El evento")?;
+
+        self.events.push(event);
+        Ok(())
+    }
+
+    pub fn add_flow(&mut self, flow: NetworkFlow) -> Result<(), DomainError> {
+        if self.flows.iter().any(|item| item.id == flow.id) {
+            return Err(DomainError::DuplicateId {
+                entity: "flujos",
+                id: flow.id.0,
+            });
         }
 
-        for evidence_id in &event.evidence_ids {
-            if !self.evidences.iter().any(|item| item.id == *evidence_id) {
-                return Err(DomainError::UnknownEvidence(*evidence_id));
+        for asset_id in [flow.endpoint_a, flow.endpoint_b] {
+            if !self.assets.iter().any(|item| item.id == asset_id) {
+                return Err(DomainError::UnknownAsset(asset_id));
             }
         }
 
-        self.events.push(event);
+        if flow.packet_count == 0 {
+            return Err(DomainError::EmptyField("cantidad de paquetes del flujo"));
+        }
+
+        if flow.first_seen_unix_ns > flow.last_seen_unix_ns {
+            return Err(DomainError::EmptyField("intervalo temporal del flujo"));
+        }
+
+        validate_evidence_ids(&self.evidences, &flow.evidence_ids, "El flujo")?;
+
+        self.flows.push(flow);
+        Ok(())
+    }
+
+    pub fn record_flow_packet(
+        &mut self,
+        flow_id: FlowId,
+        timestamp_unix_ns: i64,
+        captured_len: u32,
+        original_len: u32,
+        a_to_b: bool,
+        evidence_id: EvidenceId,
+    ) -> Result<(), DomainError> {
+        if !self.evidences.iter().any(|item| item.id == evidence_id) {
+            return Err(DomainError::UnknownEvidence(evidence_id));
+        }
+
+        let flow = self
+            .flows
+            .iter_mut()
+            .find(|item| item.id == flow_id)
+            .ok_or(DomainError::UnknownFlow(flow_id))?;
+
+        let packet_count = flow
+            .packet_count
+            .checked_add(1)
+            .ok_or(DomainError::CounterOverflow("paquetes"))?;
+
+        let captured_bytes = flow
+            .captured_bytes
+            .checked_add(u64::from(captured_len))
+            .ok_or(DomainError::CounterOverflow("bytes capturados"))?;
+
+        let original_bytes = flow
+            .original_bytes
+            .checked_add(u64::from(original_len))
+            .ok_or(DomainError::CounterOverflow("bytes originales"))?;
+
+        let (
+            packets_a_to_b,
+            packets_b_to_a,
+            captured_bytes_a_to_b,
+            captured_bytes_b_to_a,
+        ) = if a_to_b {
+            (
+                flow.packets_a_to_b
+                    .checked_add(1)
+                    .ok_or(DomainError::CounterOverflow("paquetes A hacia B"))?,
+                flow.packets_b_to_a,
+                flow.captured_bytes_a_to_b
+                    .checked_add(u64::from(captured_len))
+                    .ok_or(DomainError::CounterOverflow("bytes A hacia B"))?,
+                flow.captured_bytes_b_to_a,
+            )
+        } else {
+            (
+                flow.packets_a_to_b,
+                flow.packets_b_to_a
+                    .checked_add(1)
+                    .ok_or(DomainError::CounterOverflow("paquetes B hacia A"))?,
+                flow.captured_bytes_a_to_b,
+                flow.captured_bytes_b_to_a
+                    .checked_add(u64::from(captured_len))
+                    .ok_or(DomainError::CounterOverflow("bytes B hacia A"))?,
+            )
+        };
+
+        flow.packet_count = packet_count;
+        flow.captured_bytes = captured_bytes;
+        flow.original_bytes = original_bytes;
+
+        flow.packets_a_to_b = packets_a_to_b;
+        flow.packets_b_to_a = packets_b_to_a;
+        flow.captured_bytes_a_to_b = captured_bytes_a_to_b;
+        flow.captured_bytes_b_to_a = captured_bytes_b_to_a;
+
+        flow.first_seen_unix_ns = flow.first_seen_unix_ns.min(timestamp_unix_ns);
+        flow.last_seen_unix_ns = flow.last_seen_unix_ns.max(timestamp_unix_ns);
+        flow.evidence_ids.push(evidence_id);
+
         Ok(())
     }
 
@@ -376,21 +535,12 @@ impl Investigation {
             }
         }
 
-        if finding.evidence_ids.is_empty() {
-            return Err(DomainError::MissingEvidence("El hallazgo"));
-        }
-
-        for evidence_id in &finding.evidence_ids {
-            if !self.evidences.iter().any(|item| item.id == *evidence_id) {
-                return Err(DomainError::UnknownEvidence(*evidence_id));
-            }
-        }
+        validate_evidence_ids(&self.evidences, &finding.evidence_ids, "El hallazgo")?;
 
         self.findings.push(finding);
         Ok(())
     }
 
-    // Acceso de solo lectura a los elementos de la investigación.
     pub fn sources(&self) -> &[SourceFile] {
         &self.sources
     }
@@ -407,7 +557,29 @@ impl Investigation {
         &self.events
     }
 
+    pub fn flows(&self) -> &[NetworkFlow] {
+        &self.flows
+    }
+
     pub fn findings(&self) -> &[Finding] {
         &self.findings
     }
+}
+
+fn validate_evidence_ids(
+    evidences: &[Evidence],
+    evidence_ids: &[EvidenceId],
+    entity: &'static str,
+) -> Result<(), DomainError> {
+    if evidence_ids.is_empty() {
+        return Err(DomainError::MissingEvidence(entity));
+    }
+
+    for evidence_id in evidence_ids {
+        if !evidences.iter().any(|item| item.id == *evidence_id) {
+            return Err(DomainError::UnknownEvidence(*evidence_id));
+        }
+    }
+
+    Ok(())
 }

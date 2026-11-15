@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = [
+    "nextrace-core",
+    "nextrace-app/src-tauri",
+]

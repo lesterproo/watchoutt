@@ -1,3 +1,17 @@
+mod pcapng;
+pub use pcapng::{PcapNgError, PcapNgReader};
+
+mod project;
+pub use project::*;
+
+mod correlation;
+pub use correlation::*;
+
+mod flow_analysis;
+pub use flow_analysis::*;
+
+mod analyzer;
+pub use analyzer::*;
 
 mod model;
 
@@ -5,10 +19,35 @@ pub use model::*;
 mod source_store;
 
 mod pcap;
+mod payload;
+
+pub use payload::{extract_transport_payload, TransportPayload};
+
+mod dns;
+pub use dns::*;
+
+mod tls;
+pub use tls::*;
+
+mod http;
+pub use http::*;
+
+mod tcp_reassembly;
+pub use tcp_reassembly::*;
+
+mod anomaly;
+pub use anomaly::*;
+
+mod query;
+pub use query::*;
+
+mod export;
+pub use export::*;
 
 pub use pcap::*;
 
 pub use source_store::{import_source, SourceImportError};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,9 +88,7 @@ mod tests {
             .add_evidence(Evidence {
                 id: EvidenceId(1),
                 source_id: SourceId(1),
-                location: EvidenceLocation::PacketFrame {
-                    frame_number: 1,
-                },
+                location: EvidenceLocation::PacketFrame { frame_number: 1 },
                 excerpt: Some("Primer paquete de la captura".to_string()),
             })
             .unwrap();
@@ -92,40 +129,25 @@ mod tests {
 
     #[test]
     fn rejects_evidence_without_a_valid_source() {
-        let mut investigation = Investigation::new(
-            InvestigationId(1),
-            "Prueba",
-            None,
-            0,
-        )
-        .unwrap();
+        let mut investigation =
+            Investigation::new(InvestigationId(1), "Prueba", None, 0).unwrap();
 
         let evidence = Evidence {
             id: EvidenceId(1),
             source_id: SourceId(99),
-            location: EvidenceLocation::LogLine {
-                line_number: 10,
-            },
+            location: EvidenceLocation::LogLine { line_number: 10 },
             excerpt: None,
         };
 
         let result = investigation.add_evidence(evidence);
 
-        assert_eq!(
-            result,
-            Err(DomainError::UnknownSource(SourceId(99)))
-        );
+        assert_eq!(result, Err(DomainError::UnknownSource(SourceId(99))));
     }
 
     #[test]
     fn rejects_an_event_without_evidence() {
-        let mut investigation = Investigation::new(
-            InvestigationId(1),
-            "Prueba",
-            None,
-            0,
-        )
-        .unwrap();
+        let mut investigation =
+            Investigation::new(InvestigationId(1), "Prueba", None, 0).unwrap();
 
         let event = NetworkEvent {
             id: EventId(1),
@@ -142,9 +164,21 @@ mod tests {
 
         let result = investigation.add_event(event);
 
-        assert_eq!(
-            result,
-            Err(DomainError::MissingEvidence("El evento"))
-        );
+        assert_eq!(result, Err(DomainError::MissingEvidence("El evento")));
     }
 }
+
+mod timeline;
+pub use timeline::*;
+
+mod report;
+pub use report::*;
+
+mod baseline;
+pub use baseline::*;
+
+mod persistence;
+pub use persistence::*;
+
+pub mod live;
+pub use live::*;
