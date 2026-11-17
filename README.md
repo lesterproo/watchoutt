@@ -19,10 +19,6 @@ Disenada para analistas de ciberseguridad, equipos SOC y administradores de red,
 | :---: | :---: |
 | ![Comparación](screenshots/diff.png) | ![Captura en Vivo](screenshots/live.png) |
 
-| Exportación de Informes |
-| :---: |
-| ![Exportación](screenshots/export.png) |
-
 ## Caracteristicas Principales
 
 - Motor en Rust ultra rapido: Maneja archivos PCAP masivos sin consumir toda la memoria RAM. Utiliza un reensamblador TCP personalizado (fuera de orden) y tecnicas de zero-copy.
