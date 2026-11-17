@@ -1,17 +1,20 @@
-# Rust
+# Archivos de compilacion de Rust
 target/
 **/*.rs.bk
-Cargo.lock
 
-# Node
+# Dependencias de Node
 node_modules/
 dist/
-package-lock.json
 
-# Tauri
+# Archivos de compilacion de Tauri
 src-tauri/target/
 .tauri/
 
-# VS Code / OS
+# Archivos de captura de red (No subir datos reales a GitHub)
+*.pcap
+*.pcapng
+*.nxt
+
+# Configuraciones de Editor y Sistema Operativo
 .vscode/
 .DS_Store
