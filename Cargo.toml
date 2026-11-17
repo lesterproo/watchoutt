@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "watchouttt-core",
-    "watchouttt-app/src-tauri",
+    "watchoutt-core",
+    "watchoutt-app/src-tauri",
 ]

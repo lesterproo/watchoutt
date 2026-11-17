@@ -1,7 +1,0 @@
-[package]
-name = "watchouttt-core"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-pcap_crate = { package = "pcap", version = "0.10" }

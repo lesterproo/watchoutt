@@ -2157,13 +2157,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "nextrace-core"
-version = "0.1.0"
-dependencies = [
- "pcap",
-]
-
-[[package]]
 name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4411,7 +4404,6 @@ dependencies = [
 name = "watchoutt"
 version = "0.1.0"
 dependencies = [
- "nextrace-core",
  "once_cell",
  "serde",
  "serde_json",
@@ -4419,6 +4411,14 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "watchoutt-core",
+]
+
+[[package]]
+name = "watchoutt-core"
+version = "0.1.0"
+dependencies = [
+ "pcap",
 ]
 
 [[package]]
