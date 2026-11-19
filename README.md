@@ -19,10 +19,6 @@ Disenada para analistas de ciberseguridad, equipos SOC y administradores de red,
 | :---: | :---: |
 | ![Comparación](screenshots/diff.png) | ![Captura en Vivo](screenshots/live.png) |
 
-| Exportación de Informes |
-| :---: |
-| ![Exportación](screenshots/export.png) |
-
 ## Caracteristicas Principales
 
 - Motor en Rust ultra rapido: Maneja archivos PCAP masivos sin consumir toda la memoria RAM. Utiliza un reensamblador TCP personalizado (fuera de orden) y tecnicas de zero-copy.
@@ -63,8 +59,8 @@ sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/watchoutt
 Si quieres contribuir o compilarlo tu mismo:
 
 sudo dnf install libpcap-devel webkit2gtk4.1-devel
-git clone https://github.com/TU_USUARIO/NEXTRACE.git
-cd NEXTRACE/nextrace-app
+git clone https://github.com/lesterproo/watchoutt.git
+cd /watchoutt
 npm install
 npm run tauri build
 
